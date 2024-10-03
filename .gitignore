@@ -1,0 +1,5 @@
+.env
+node_modules
+sms.js
+test.js
+text.txt
