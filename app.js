@@ -438,18 +438,6 @@ bot.onText(/\/addvip (\d+)/, async (msg, match) => {
     // Kiểm tra xem admin có session hay không (phải có session mới thực hiện lệnh)
     if (adminSessions.has(adminId)) {
         try {
-            // Kiểm tra xem bot có phải là admin trong chat hay không
-            const botMember = await bot.getChatMember(chatId, bot.token.split(':')[0]);
-            if (botMember.status !== 'administrator') {
-                return bot.sendMessage(chatId, 'Bot cần quyền admin để thêm VIP.');
-            }
-
-            // Kiểm tra xem người dùng mục tiêu có tồn tại trong nhóm không
-            const chatMember = await bot.getChatMember(chatId, targetUserId);
-            if (!chatMember || !chatMember.user) {
-                return bot.sendMessage(chatId, `Không tìm thấy người dùng với ID ${targetUserId} trong nhóm.`);
-            }
-
             // Lấy thông tin người dùng
             const username = chatMember.user.username || (chatMember.user.first_name + ' ' + chatMember.user.last_name) || 'Unknown';
 
