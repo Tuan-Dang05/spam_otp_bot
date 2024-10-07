@@ -291,13 +291,6 @@ bot.onText(/\/login (.+) (.+)/, (msg, match) => {
 });
 
 
-// Function to mask the last 5 digits of a phone number
-// const maskPhoneNumber = (phoneNumber) => {
-//     if (phoneNumber.length > 5) {
-//         return phoneNumber.slice(0, -5) + '*****';
-//     }
-//     return '*****'; // If the number is 5 digits or less, mask all
-// };
 
 // Hàm để che giấu số điện thoại
 function maskPhoneNumber(phoneNumber) {
@@ -315,8 +308,10 @@ bot.onText(/^\/spam(?!\S)(?:\s+(\S+))?(?:\s+(\d+))?/, async (msg, match) => {
     const userId = msg.from.id;
     const currentTime = new Date().getTime();
 
-    // Xóa tin nhắn gốc của người dùng
-    bot.deleteMessage(chatId, msg.message_id).catch(error => console.error('Error deleting message:', error));
+    // Chỉ xóa tin nhắn nếu cả số điện thoại và số lần đều hợp lệ
+    if (phoneNumber && !isNaN(times) && times > 0 && times <= 10) {
+        bot.deleteMessage(chatId, msg.message_id).catch(error => console.error('Error deleting message:', error));
+    }
 
     if (chatId === TARGET_GROUP_ID) {
         const stats = updateUserStats(userId);
@@ -332,8 +327,8 @@ bot.onText(/^\/spam(?!\S)(?:\s+(\S+))?(?:\s+(\d+))?/, async (msg, match) => {
             return;
         }
 
-        if (isNaN(phoneNumber) || times <= 0 || times > 10) {
-            bot.sendMessage(chatId, 'Vui lòng nhập số lần spam hợp lệ (1-10) !');
+        if (!phoneNumber || isNaN(times) || times <= 0 || times > 10) {
+            bot.sendMessage(chatId, 'Vui lòng nhập đúng định dạng: /spam [số điện thoại] [số lần] (1-10)');
             return;
         }
 
@@ -363,13 +358,15 @@ bot.onText(/^\/spam(?!\S)(?:\s+(\S+))?(?:\s+(\d+))?/, async (msg, match) => {
 bot.onText(/^\/spamvip(?!\S)(?:\s+(\S+))?(?:\s+(\d+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
+    let phoneNumber = match[1] ? match[1].trim() : null;
+    const times = match[2] ? parseInt(match[2], 10) : null;
 
-    // Xóa tin nhắn gốc của người dùng
-    bot.deleteMessage(chatId, msg.message_id).catch(error => console.error('Error deleting message:', error));
+    // Chỉ xóa tin nhắn nếu cả số điện thoại và số lần đều hợp lệ
+    if (phoneNumber && !isNaN(times) && times > 0 && times <= 30) {
+        bot.deleteMessage(chatId, msg.message_id).catch(error => console.error('Error deleting message:', error));
+    }
 
     if (chatId === TARGET_GROUP_ID) {
-        let phoneNumber = match[1] ? match[1].trim() : null;
-        const times = match[2] ? parseInt(match[2], 10) : null;
         const currentTime = Date.now();
 
         if (!isVipUser(userId)) {
