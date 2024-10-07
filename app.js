@@ -245,17 +245,25 @@ bot.onText(/\/muavip/, async (msg) => {
     const chatId = msg.chat.id;
     const imagePath = './qrcode.jpg'; // Đường dẫn tới ảnh cục bộ
     const resizedImagePath = './qrcode_resized.jpg'; // Đường dẫn lưu ảnh đã thay đổi kích cỡ
+
     if (chatId !== TARGET_GROUP_ID) {
         try {
-            // Đọc ảnh và thay đổi kích cỡ
+            // Đọc ảnh và điều chỉnh chất lượng
             await sharp(imagePath)
-                .resize(200, 200) // Thay đổi kích cỡ ảnh, ví dụ 800x800 pixels
+                .resize(700, 700, { // Giữ kích thước lớn hơn, ví dụ 800x800 pixels
+                    fit: 'inside', // Giữ tỷ lệ khung hình
+                    withoutEnlargement: true // Không phóng to ảnh nếu nó nhỏ hơn kích thước đích
+                })
+                .jpeg({ quality: 90 }) // Tăng chất lượng JPEG
                 .toFile(resizedImagePath);
 
-            // Gửi ảnh đã thay đổi kích cỡ
-            const imageBuffer = fs.readFileSync(resizedImagePath); // Đọc ảnh đã thay đổi kích cỡ dưới dạng Buffer
-            await bot.sendPhoto(chatId, imageBuffer);
-            await bot.sendMessage(chatId, `Quét mã QR trên để thanh toán\n-----------------------------\nHỌ TÊN: *MOMO_DANGANHTUAN*\nSỐ TIỀN: *20.000VNĐ*\nNỘI DUNG: *muavip*`, { parse_mode: 'Markdown' })
+            // Gửi ảnh đã điều chỉnh
+            const imageBuffer = fs.readFileSync(resizedImagePath);
+            await bot.sendPhoto(chatId, imageBuffer, {
+                caption: `Quét mã QR trên để thanh toán\n-----------------------------\nHỌ TÊN: *MOMO_DANGANHTUAN*\nSỐ TIỀN: *20.000VNĐ*\nNỘI DUNG: *muavip*`,
+                parse_mode: 'Markdown'
+            });
+
             // Xóa ảnh tạm sau khi gửi để tiết kiệm dung lượng
             fs.unlinkSync(resizedImagePath);
 
