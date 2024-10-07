@@ -443,61 +443,6 @@ bot.onText(/\/removevip (\d+)/, (msg, match) => {
 });
 
 
-//Điều này cho phép chúng ta bắt được tất cả các input, kể cả khi người dùng không nhập gì hoặc nhập sai định dạng.
-bot.onText(/\/checkvip(.*)/, (msg, match) => {
-    const chatId = msg.chat.id;
-    const input = match[1].trim();
-    let targetUserId;
-
-    // Kiểm tra nếu không có input, sử dụng ID của người gửi
-    if (!input) {
-        targetUserId = msg.from.id;
-    } else if (isNaN(input)) {
-        bot.sendMessage(chatId, 'Vui lòng nhập UserID hợp lệ để kiểm tra. Ví dụ: /checkvip 123456789');
-        return;
-    } else {
-        targetUserId = parseInt(input, 10);
-    }
-
-    if (VIP_USERS.has(targetUserId)) {
-        const userData = VIP_USERS.get(targetUserId);
-        const expirationTimestamp = userData.expirationTimestamp;
-        const username = userData.username || 'Không có tên người dùng';
-        const remainingTime = Math.max(0, expirationTimestamp - Date.now());
-        let timeMessage;
-
-        if (remainingTime <= 0) {
-            timeMessage = 'đã hết hạn';
-        } else if (remainingTime >= 86400000) { // More than or equal to 1 day
-            const remainingDays = Math.floor(remainingTime / 86400000);
-            timeMessage = `còn ${remainingDays} ngày trước khi hết hạn`;
-        } else if (remainingTime >= 3600000) { // More than or equal to 1 hour
-            const remainingHours = Math.floor(remainingTime / 3600000);
-            timeMessage = `còn ${remainingHours} giờ trước khi hết hạn`;
-        } else {
-            const remainingMinutes = Math.ceil(remainingTime / 60000);
-            timeMessage = `còn ${remainingMinutes} phút trước khi hết hạn`;
-        }
-
-        bot.sendMessage(chatId, `UserID ${targetUserId} (${username}) là VIP và ${timeMessage}.`);
-    } else {
-        bot.sendMessage(chatId, `UserID ${targetUserId} không phải là VIP.`);
-    }
-});
-
-bot.onText(/\/listvip/, (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id; // ID of the admin executing the command
-
-    if (adminSessions.has(userId)) {
-        const vipList = listVipUsers(userId);
-        bot.sendMessage(chatId, vipList);
-    } else {
-        bot.sendMessage(chatId, 'Chỉ admin mới có thể thực hiện lệnh này.');
-    }
-});
-
-
 // Load VIP users from JSON file
 const loadVipUsers = () => {
     try {
@@ -507,7 +452,9 @@ const loadVipUsers = () => {
             entry.userId,
             {
                 expirationTimestamp: entry.expirationTimestamp.expirationTimestamp,
-                username: entry.expirationTimestamp.username
+                username: entry.expirationTimestamp.username,
+                firstName: entry.expirationTimestamp.firstName || '',
+                lastName: entry.expirationTimestamp.lastName || ''
             }
         ]));
     } catch (error) {
@@ -522,18 +469,22 @@ const saveVipUsers = () => {
         userId,
         expirationTimestamp: {
             expirationTimestamp: userData.expirationTimestamp,
-            username: userData.username
+            username: userData.username,
+            firstName: userData.firstName,
+            lastName: userData.lastName
         }
     }));
     fs.writeFileSync(VIP_USERS_FILE, JSON.stringify(vipData, null, 2), 'utf8');
 };
 
-// Add VIP user with correct data structure
-const addVipUser = (userId, username) => {
+// Add VIP user with full name information
+const addVipUser = (userId, username, firstName, lastName) => {
     const expirationTimestamp = Date.now() + VIP_DURATION;
     VIP_USERS.set(userId, {
         expirationTimestamp: expirationTimestamp,
-        username: username
+        username: username,
+        firstName: firstName || '',
+        lastName: lastName || ''
     });
     saveVipUsers();
 };
@@ -546,15 +497,35 @@ bot.onText(/\/addvip (\d+)/, async (msg, match) => {
 
     if (adminSessions.has(adminId)) {
         try {
-            // Add user to VIP list with provided ID and default username
-            addVipUser(targetUserId, `User_${targetUserId}`);
+            // Attempt to get user information from Telegram
+            const userInfo = await bot.getChat(targetUserId);
+            const username = userInfo.username || `User_${targetUserId}`;
+            const firstName = userInfo.first_name || '';
+            const lastName = userInfo.last_name || '';
 
-            // Success message to admin
-            bot.sendMessage(chatId, `✅ Thêm VIP thành công!\n🆔 UserID: ${targetUserId}\n⏰ Thời hạn: 30 ngày\n\n📝`);
+            // Add user to VIP list with full information
+            addVipUser(targetUserId, username, firstName, lastName);
+
+            // Format full name for display
+            const fullName = [firstName, lastName].filter(Boolean).join(' ') || 'Unknown';
+
+            // Success message to admin with full information
+            bot.sendMessage(chatId, 
+                `✅ Thêm VIP thành công!\n` +
+                `🆔 UserID: ${targetUserId}\n` +
+                `👤 Tên: ${fullName}\n` +
+                `🔰 Username: @${username}\n` +
+                `⏰ Thời hạn: 30 ngày\n\n` +
+                `📝 Lưu ý: Người dùng cần vào bot và sử dụng lệnh /start trước khi có thể sử dụng tính năng VIP.`
+            );
             
             // Try to notify the user
             try {
-                await bot.sendMessage(targetUserId, `🎉 Chúc mừng! Bạn đã được nâng cấp lên VIP!\n⏰ Thời hạn: 30 ngày\n\n💡 Sử dụng lệnh /spamvip để spam với tốc độ nhanh hơn!`);
+                await bot.sendMessage(targetUserId, 
+                    `🎉 Chúc mừng ${firstName}! Bạn đã được nâng cấp lên VIP!\n` +
+                    `⏰ Thời hạn: 30 ngày\n\n` +
+                    `💡 Sử dụng lệnh /spamvip để spam với tốc độ nhanh hơn!`
+                );
             } catch (error) {
                 console.log(`Không thể gửi thông báo tới người dùng ${targetUserId}`);
             }
@@ -566,6 +537,83 @@ bot.onText(/\/addvip (\d+)/, async (msg, match) => {
         bot.sendMessage(chatId, '⚠️ Chỉ admin mới có thể thực hiện lệnh này.');
     }
 });
+
+// Update list VIP command to show full names
+bot.onText(/\/listvip/, (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (adminSessions.has(userId)) {
+        if (VIP_USERS.size === 0) {
+            bot.sendMessage(chatId, 'Danh sách VIP trống.');
+            return;
+        }
+
+        let message = '📋 Danh sách người dùng VIP:\n\n';
+        VIP_USERS.forEach((userData, userId) => {
+            const fullName = [userData.firstName, userData.lastName].filter(Boolean).join(' ') || 'Unknown';
+            const expirationDate = new Date(userData.expirationTimestamp).toLocaleString();
+            message += 
+                `🆔 ID: ${userId}\n` +
+                `👤 Tên: ${fullName}\n` +
+                `🔰 Username: @${userData.username}\n` +
+                `⏰ Hết hạn: ${expirationDate}\n` +
+                `➖➖➖➖➖➖➖➖➖➖\n`;
+        });
+
+        bot.sendMessage(chatId, message);
+    } else {
+        bot.sendMessage(chatId, '⚠️ Chỉ admin mới có thể thực hiện lệnh này.');
+    }
+});
+
+// Update check VIP command to show full name
+bot.onText(/\/checkvip(.*)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const input = match[1].trim();
+    let targetUserId;
+
+    if (!input) {
+        targetUserId = msg.from.id;
+    } else if (isNaN(input)) {
+        bot.sendMessage(chatId, '⚠️ Vui lòng nhập UserID hợp lệ để kiểm tra. Ví dụ: /checkvip 123456789');
+        return;
+    } else {
+        targetUserId = parseInt(input, 10);
+    }
+
+    if (VIP_USERS.has(targetUserId)) {
+        const userData = VIP_USERS.get(targetUserId);
+        const expirationTimestamp = userData.expirationTimestamp;
+        const fullName = [userData.firstName, userData.lastName].filter(Boolean).join(' ') || 'Unknown';
+        const remainingTime = Math.max(0, expirationTimestamp - Date.now());
+        
+        let timeMessage;
+        if (remainingTime <= 0) {
+            timeMessage = 'đã hết hạn';
+        } else if (remainingTime >= 86400000) {
+            const remainingDays = Math.floor(remainingTime / 86400000);
+            timeMessage = `còn ${remainingDays} ngày trước khi hết hạn`;
+        } else if (remainingTime >= 3600000) {
+            const remainingHours = Math.floor(remainingTime / 3600000);
+            timeMessage = `còn ${remainingHours} giờ trước khi hết hạn`;
+        } else {
+            const remainingMinutes = Math.ceil(remainingTime / 60000);
+            timeMessage = `còn ${remainingMinutes} phút trước khi hết hạn`;
+        }
+
+        bot.sendMessage(chatId, 
+            `🔍 Thông tin VIP:\n` +
+            `🆔 UserID: ${targetUserId}\n` +
+            `👤 Tên: ${fullName}\n` +
+            `🔰 Username: @${userData.username}\n` +
+            `⏰ Trạng thái: ${timeMessage}`
+        );
+    } else {
+        bot.sendMessage(chatId, `❌ UserID ${targetUserId} không phải là VIP.`);
+    }
+});
+
 
 // Check VIP status helper function
 const isVipUser = (userId) => {
