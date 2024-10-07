@@ -291,6 +291,14 @@ bot.onText(/\/login (.+) (.+)/, (msg, match) => {
 });
 
 
+// Function to mask the last 5 digits of a phone number
+const maskPhoneNumber = (phoneNumber) => {
+    if (phoneNumber.length > 5) {
+        return phoneNumber.slice(0, -5) + '*****';
+    }
+    return '*****'; // If the number is 5 digits or less, mask all
+};
+
 // Lệnh spam thường
 bot.onText(/^\/spam(?!\S)(?:\s+(\S+))?(?:\s+(\d+))?/, async (msg, match) => {
     const chatId = msg.chat.id;
@@ -327,10 +335,11 @@ bot.onText(/^\/spam(?!\S)(?:\s+(\S+))?(?:\s+(\d+))?/, async (msg, match) => {
         lastSpamTime[userId] = currentTime;
         stats.daily[today] += 1;
 
-        bot.sendMessage(chatId, `Bắt đầu tấn công: ⏩ ${phoneNumberSpam}`);
+        const maskedPhoneNumber = maskPhoneNumber(phoneNumberSpam);
+        bot.sendMessage(chatId, `Bắt đầu tấn công: ⏩ ${maskedPhoneNumber}`);
         await delay(4000);
         const currentFormattedTime = formatDate();
-        bot.sendMessage(chatId, `✅ THÀNH CÔNG! \n[✔] UserID: [🆔 ${msg.from.id}] \n[✔] Số Spam: [${phoneNumberSpam}] \n[✔] Số lần: ${times} \n[✔] Ngày: ${currentFormattedTime} \n[✔] Gói dịch vụ: [♛ Thường] \n[✔] Bản quyền: 🔰 @tunzankies 🔰`);
+        bot.sendMessage(chatId, `✅ THÀNH CÔNG! \n[✔] UserID: [🆔 ${msg.from.id}] \n[✔] Số Spam: [${maskedPhoneNumber}] \n[✔] Số lần: ${times} \n[✔] Ngày: ${currentFormattedTime} \n[✔] Gói dịch vụ: [♛ Thường] \n[✔] Bản quyền: 🔰 @tunzankies 🔰`);
         smsBomb(chatId, phoneNumberSpam, times);
 
         // Save updated user stats
@@ -369,7 +378,7 @@ bot.onText(/^\/spamvip(?!\S)(?:\s+(\S+))?(?:\s+(\d+))?/, async (msg, match) => {
             return;
         }
 
-        if (phoneNumber === '114' || phoneNumber === '113' || phoneNumber === '911' || phoneNumber === '0988282936') {
+        if (phoneNumber === '114' || phoneNumber === '113' || phoneNumber === '911' || phoneNumber === '0988282936' || phoneNumber === '0383858905') {
             bot.sendMessage(chatId, 'Số điện thoại đã được bảo vệ! 😒');
             return;
         }
@@ -387,11 +396,12 @@ bot.onText(/^\/spamvip(?!\S)(?:\s+(\S+))?(?:\s+(\d+))?/, async (msg, match) => {
 
         lastSpamTime[userId] = currentTime;
 
-        bot.sendMessage(chatId, `Bắt đầu tấn công: ⏩ ${phoneNumber}`);
+        const maskedPhoneNumber = maskPhoneNumber(phoneNumber);
+        bot.sendMessage(chatId, `Bắt đầu tấn công: ⏩ ${maskedPhoneNumber}`);
         await delay(5000);
 
         const currentFormattedTime = formatDate();
-        const successMessage = `✅ THÀNH CÔNG! \n[✔] UserID: [🆔 ${userId}] \n[✔] Số Spam: [${phoneNumber}] \n[✔] Số lần: ${times} \n[✔] Ngày: ${currentFormattedTime} \n[✔] Gói dịch vụ: [♛ VIP] \n[✔] Bản quyền: 🔰 @tunzankies 🔰`;
+        const successMessage = `✅ THÀNH CÔNG! \n[✔] UserID: [🆔 ${userId}] \n[✔] Số Spam: [${maskedPhoneNumber}] \n[✔] Số lần: ${times} \n[✔] Ngày: ${currentFormattedTime} \n[✔] Gói dịch vụ: [♛ VIP] \n[✔] Bản quyền: 🔰 @tunzankies 🔰`;
 
         bot.sendMessage(chatId, successMessage);
         smsBomb(chatId, phoneNumber, times);
@@ -419,7 +429,7 @@ bot.onText(/\/addvip (\d+)/, async (msg, match) => {
         try {
             // Lấy thông tin người dùng từ ID
             const chatMember = await bot.getChatMember(chatId, targetUserId);
-            const username = chatMember.user.username || chatMember.user.first_name || 'Unknown';
+            const username = chatMember.user.username || chatMember.user.first_name + chatMember.user.last_name || 'Unknown';
 
             // Thêm người dùng vào danh sách VIP
             addVipUser(targetUserId, username);
