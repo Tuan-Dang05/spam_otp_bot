@@ -179,7 +179,7 @@ bot.setMyCommands([
     { command: '/id', description: 'Xem ID Telegram của bạn' },
     { command: '/spam', description: ' /spam <sđt> <số_lần> - gói thường' },
     { command: '/spamvip', description: '/spamvip <sđt> <số_lần> - gói VIP' },
-    { command: '/muavip', description: 'Chỉ 30k/tháng cho món đồ chơi này' },
+    { command: '/muavip', description: 'Chỉ 20k/tháng cho món đồ chơi này' },
     { command: '/checkvip', description: 'Kiểm tra tình trạng VIP' },
 ]);
 
@@ -228,11 +228,11 @@ Danh sách các lệnh có sẵn:
 /id - _Xem ID Telegram của bạn_
 /spam <sđt> <số_lần> - _Gói thường_
 /spamvip <sđt> <số_lần> - _Gói VIP_
-/muavip - _Chỉ 30k/tháng cho 1 món đồ chơi này._ 
+/muavip - _Chỉ 20k/tháng cho 1 món đồ chơi này._ 
 /checkvip <id> - _Kiểm tra tình trạng VIP_
 
 Ví dụ sử dụng:
-- /spam 0123456789 5 (Gói thường - spam tối đa 5 lần)
+- /spam 0123456789 5 (Gói thường - spam tối đa 10 lần)
 - /spamvip 0123456789 30 (Gói VIP - spam tối đa 30 lần)
 
 Lưu ý: Khi chuyển khoản thành công, copy ID TELEGRAM (/id) gửi cho admin *🔰@tunzankies🔰* để lên VIP
@@ -255,7 +255,7 @@ bot.onText(/\/muavip/, async (msg) => {
             // Gửi ảnh đã thay đổi kích cỡ
             const imageBuffer = fs.readFileSync(resizedImagePath); // Đọc ảnh đã thay đổi kích cỡ dưới dạng Buffer
             await bot.sendPhoto(chatId, imageBuffer);
-            await bot.sendMessage(chatId, `Quét mã QR trên để thanh toán\n-----------------------------\nHỌ TÊN: *MOMO_DANGANHTUAN*\nSỐ TIỀN: *30.000VNĐ*\nNỘI DUNG: *muavip*`, { parse_mode: 'Markdown' })
+            await bot.sendMessage(chatId, `Quét mã QR trên để thanh toán\n-----------------------------\nHỌ TÊN: *MOMO_DANGANHTUAN*\nSỐ TIỀN: *20.000VNĐ*\nNỘI DUNG: *muavip*`, { parse_mode: 'Markdown' })
             // Xóa ảnh tạm sau khi gửi để tiết kiệm dung lượng
             fs.unlinkSync(resizedImagePath);
 
@@ -295,8 +295,8 @@ bot.onText(/^\/spam(?!\S)(?:\s+(\S+))?(?:\s+(\d+))?/, async (msg, match) => {
         const stats = updateUserStats(userId);
         const today = new Date().toISOString().slice(0, 10);
 
-        if (stats.total >= 5) {
-            bot.sendMessage(chatId, 'Bạn đã đạt giới hạn tổng số lần spam. Vui lòng thử lại sau.');
+        if (stats.daily[today] >= 5) {
+            bot.sendMessage(chatId, 'Bạn đã đạt giới hạn số lần spam trong ngày (5 lần). Vui lòng thử lại vào ngày mai!');
             return;
         }
 
@@ -305,13 +305,8 @@ bot.onText(/^\/spam(?!\S)(?:\s+(\S+))?(?:\s+(\d+))?/, async (msg, match) => {
             return;
         }
 
-        if (stats.daily[today] >= 5) {
-            bot.sendMessage(chatId, 'Bạn đã đạt giới hạn số lần spam trong ngày. Vui lòng thử lại sau.');
-            return;
-        }
-
-        if (isNaN(phoneNumberSpam) || times <= 0 || times > 5) {
-            bot.sendMessage(chatId, 'Vui lòng nhập số lần spam hợp lệ (1-5) !');
+        if (isNaN(phoneNumberSpam) || times <= 0 || times > 10) {
+            bot.sendMessage(chatId, 'Vui lòng nhập số lần spam hợp lệ (1-10) !');
             return;
         }
 
@@ -322,7 +317,6 @@ bot.onText(/^\/spam(?!\S)(?:\s+(\S+))?(?:\s+(\d+))?/, async (msg, match) => {
         }
 
         lastSpamTime[userId] = currentTime;
-        stats.total += 1;
         stats.daily[today] += 1;
 
         bot.sendMessage(chatId, `Bắt đầu tấn công: ⏩ ${phoneNumberSpam}`);
@@ -330,6 +324,9 @@ bot.onText(/^\/spam(?!\S)(?:\s+(\S+))?(?:\s+(\d+))?/, async (msg, match) => {
         const currentFormattedTime = formatDate();
         bot.sendMessage(chatId, `✅ THÀNH CÔNG! \n[✔] UserID: [🆔 ${msg.from.id}] \n[✔] Số Spam: [${phoneNumberSpam}] \n[✔] Số lần: ${times} \n[✔] Ngày: ${currentFormattedTime} \n[✔] Gói dịch vụ: [♛ Thường] \n[✔] Bản quyền: 🔰 @tunzankies 🔰`);
         smsBomb(chatId, phoneNumberSpam, times);
+
+        // Save updated user stats
+        saveUserStats();
     } else {
         bot.sendMessage(chatId, 'Sử dụng lệnh trong nhóm này: https://t.me/spamsms_tool');
     }
