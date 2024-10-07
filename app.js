@@ -433,26 +433,41 @@ bot.onText(/\/id/, (msg) => {
 bot.onText(/\/addvip (\d+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const adminId = msg.from.id;
-    const targetUserId = parseInt(match[1], 10);
+    const targetUserId = parseInt(match[1], 10); // Lấy User ID từ lệnh
 
+    // Kiểm tra xem admin có session hay không (phải có session mới thực hiện lệnh)
     if (adminSessions.has(adminId)) {
         try {
-            // Lấy thông tin người dùng từ ID
+            // Kiểm tra xem bot có phải là admin trong chat hay không
+            const botMember = await bot.getChatMember(chatId, bot.token.split(':')[0]);
+            if (botMember.status !== 'administrator') {
+                return bot.sendMessage(chatId, 'Bot cần quyền admin để thêm VIP.');
+            }
+
+            // Kiểm tra xem người dùng mục tiêu có tồn tại trong nhóm không
             const chatMember = await bot.getChatMember(chatId, targetUserId);
-            const username = chatMember.user.username || chatMember.user.first_name + chatMember.user.last_name || 'Unknown';
+            if (!chatMember || !chatMember.user) {
+                return bot.sendMessage(chatId, `Không tìm thấy người dùng với ID ${targetUserId} trong nhóm.`);
+            }
+
+            // Lấy thông tin người dùng
+            const username = chatMember.user.username || (chatMember.user.first_name + ' ' + chatMember.user.last_name) || 'Unknown';
 
             // Thêm người dùng vào danh sách VIP
             addVipUser(targetUserId, username);
 
+            // Gửi tin nhắn xác nhận
             bot.sendMessage(chatId, `UserID ${targetUserId} (${username}) đã được thêm vào danh sách VIP và sẽ hết hạn sau 30 ngày.`);
         } catch (error) {
             console.error('Error adding VIP user:', error);
             bot.sendMessage(chatId, `Có lỗi xảy ra khi thêm UserID ${targetUserId} vào danh sách VIP. Vui lòng thử lại sau.`);
         }
     } else {
+        // Nếu người thực hiện lệnh không phải admin, gửi thông báo
         bot.sendMessage(chatId, 'Chỉ admin mới có thể thực hiện lệnh này.');
     }
 });
+
 
 bot.onText(/\/removevip (\d+)/, (msg, match) => {
     const chatId = msg.chat.id;
