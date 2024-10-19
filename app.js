@@ -1,15 +1,130 @@
 const TelegramBot = require('node-telegram-bot-api');
-require('dotenv').config()
+require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
-const express = require('express')
-const app = express()
+const express = require('express');
+const mysql = require('mysql2/promise');
+const app = express();
 
-const port = process.env.PORT || 3000
+const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`)
-})
+    console.log(`Server is running on http://localhost:${port}`);
+});
+
+const dbConfig = {
+    host: process.env.DB_HOST || 'localhost',
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'telegram_bot'
+};
+
+const pool = mysql.createPool(dbConfig);
+
+async function initializeDatabase() {
+    try {
+        const connection = await pool.getConnection();
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS vip_users (
+                user_id BIGINT PRIMARY KEY,
+                username VARCHAR(255),
+                first_name VARCHAR(255),
+                last_name VARCHAR(255),
+                expiration_timestamp BIGINT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        connection.release();
+        console.log('Database initialized successfully');
+    } catch (error) {
+        console.error('Error initializing database:', error);
+    }
+}
+
+function maskPhoneNumber(phoneNumber) {
+    if (phoneNumber && phoneNumber.length > 5) {
+        return phoneNumber.slice(0, -5) + '*****';
+    }
+    return phoneNumber;
+}
+
+async function isVipUser(userId) {
+    try {
+        const [rows] = await pool.execute(
+            'SELECT * FROM vip_users WHERE user_id = ? AND expiration_timestamp > ?',
+            [userId, Date.now()]
+        );
+        return rows.length > 0;
+    } catch (error) {
+        console.error('Error checking VIP status:', error);
+        return false;
+    }
+}
+
+async function removeExpiredVipUsers() {
+    try {
+        const [result] = await pool.execute(
+            'DELETE FROM vip_users WHERE expiration_timestamp <= ?',
+            [Date.now()]
+        );
+        if (result.affectedRows > 0) {
+            console.log(`Removed ${result.affectedRows} expired VIP users`);
+        }
+    } catch (error) {
+        console.error('Error removing expired VIP users:', error);
+    }
+}
+
+async function addVipUser(userId, username, firstName, lastName) {
+    try {
+        const expirationTimestamp = Date.now() + VIP_DURATION;
+        await pool.execute(
+            'INSERT INTO vip_users (user_id, username, first_name, last_name, expiration_timestamp) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE username = ?, first_name = ?, last_name = ?, expiration_timestamp = ?',
+            [userId, username, firstName, lastName, expirationTimestamp, username, firstName, lastName, expirationTimestamp]
+        );
+        return true;
+    } catch (error) {
+        console.error('Error adding VIP user:', error);
+        return false;
+    }
+}
+
+async function removeVipUser(userId) {
+    try {
+        const [result] = await pool.execute(
+            'DELETE FROM vip_users WHERE user_id = ?',
+            [userId]
+        );
+        return result.affectedRows > 0;
+    } catch (error) {
+        console.error('Error removing VIP user:', error);
+        return false;
+    }
+}
+
+async function listVipUsers() {
+    try {
+        const [rows] = await pool.execute('SELECT * FROM vip_users ORDER BY created_at DESC');
+        return rows;
+    } catch (error) {
+        console.error('Error listing VIP users:', error);
+        return [];
+    }
+}
+
+async function getVipUser(userId) {
+    try {
+        const [rows] = await pool.execute(
+            'SELECT * FROM vip_users WHERE user_id = ?',
+            [userId]
+        );
+        return rows[0] || null;
+    } catch (error) {
+        console.error('Error getting VIP user:', error);
+        return null;
+    }
+}
 
 const {
     TV360,
@@ -41,22 +156,15 @@ const {
 
 const TARGET_GROUP_ID = -1002407864615;
 
-// const { admin } = require('./admin')
-
-let VIP_USERS = new Map();
-
-// const VIP_DURATION = 30 * 1000;
 const VIP_USERS_FILE = path.join(__dirname, 'vip_users.json');
 const VIP_DURATION = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
 
 const bot = new TelegramBot(process.env.TELEGRAM_API, { polling: true });
 
-// Delay function
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// Object to track user last spam time and stats
 const lastSpamTime = {};
-const userStats = new Map(); // Track user statistics
+const userStats = new Map();
 
 const USER_STATS_FILE_PATH = path.join(__dirname, 'user_stats.json');
 const ADMIN_CREDENTIALS = {
@@ -67,17 +175,16 @@ const adminSessions = new Map();
 
 const formatDate = () => {
     const now = new Date();
-    const hours = now.getHours().toString().padStart(2, '0'); // Giờ
-    const minutes = now.getMinutes().toString().padStart(2, '0'); // Phút
-    const month = (now.getMonth() + 1).toString().padStart(2, '0'); // Tháng (bắt đầu từ 0)
-    const day = now.getDate().toString().padStart(2, '0'); // Ngày
-    const year = now.getFullYear(); // Năm
-    return `${hours}:${minutes}, ${month}/${day}/${year}`; // Format mm/dd/yyyy
+    const hours = now.getHours().toString().padStart(2, '0');
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    const day = now.getDate().toString().padStart(2, '0');
+    const year = now.getFullYear();
+    return `${hours}:${minutes}, ${month}/${day}/${year}`;
 };
 
-// Function to initialize or update user statistics
 const updateUserStats = (userId) => {
-    const today = new Date().toISOString().slice(0, 10); // Format YYYY-MM-DD
+    const today = new Date().toISOString().slice(0, 10);
     if (!userStats.has(userId)) {
         userStats.set(userId, { total: 0, daily: { [today]: 0 } });
     }
@@ -90,37 +197,7 @@ const updateUserStats = (userId) => {
     return stats;
 };
 
-// SMS bombing function
-// const smsBomb = async (chatId, phoneNumber, times) => {
-//     for (let i = 0; i < times; i++) {
-//         await VIETTEL(phoneNumber);
-//         await delay(2000); // 2 seconds delay
-//         await FPTSHOP(phoneNumber);
-//         await delay(2000); // 2 seconds delay
-//         await GalaxyPlay(phoneNumber);
-//         await delay(2000); // 2 seconds delay
-//         await TV360(phoneNumber);
-//         await delay(2000); // 2 seconds delay
-//         await FTPplay(phoneNumber);
-//         await delay(2000); // 2 seconds delay
-//         await TV360(phoneNumber); // Again, if necessary
-//         await delay(2000); // 2 seconds delay
-//         await Shine(phoneNumber);
-//         await hasaki(phoneNumber);
-//         await MyVietel(phoneNumber);
-//         await Futabus(phoneNumber);
-//         await VIEON(phoneNumber);
-//         await Momo(phoneNumber);
-//         await FPTPLAY2(phoneNumber);
-//         await MyTV(phoneNumber);
-//         await ONPLUS(phoneNumber);
-//         await delay(20000); 
-//     }
-// };
-
-// Cập nhật hàm smsBomb để chạy theo yêu cầu
 const smsBomb = async (chatId, phoneNumber, times) => {
-    // Danh sách các dịch vụ spam theo thứ tự luân phiên
     const services = [
         TV360,
         Shine,
@@ -149,29 +226,24 @@ const smsBomb = async (chatId, phoneNumber, times) => {
         bestInc
     ];
 
-    // Nếu spam 2 lần thì chỉ chạy VIETTEL và FPTSHOP
     if (times === 2) {
         await VIETTEL(phoneNumber);
-        await delay(2000); // 2 giây delay
+        await delay(2000);
         await FPTSHOP(phoneNumber);
     } else {
-        // Nếu spam hơn 2 lần, luân phiên qua danh sách các dịch vụ
         for (let i = 0; i < times; i++) {
-            const serviceIndex = i % services.length; // Quay vòng danh sách dịch vụ
+            const serviceIndex = i % services.length;
             const currentService = services[serviceIndex];
 
-            // Gọi dịch vụ tương ứng
             await currentService(phoneNumber);
-            await delay(2000); // 2 giây delay giữa mỗi lần gọi
+            await delay(2000);
 
-            // Sau mỗi 10 dịch vụ thì delay thêm 20 giây
             if ((i + 1) % services.length === 0) {
-                await delay(20000); // 20 giây delay sau khi chạy hết tất cả các dịch vụ
+                await delay(20000);
             }
         }
     }
 };
-
 
 // Set bot commands
 bot.setMyCommands([
@@ -477,17 +549,6 @@ const saveVipUsers = () => {
     fs.writeFileSync(VIP_USERS_FILE, JSON.stringify(vipData, null, 2), 'utf8');
 };
 
-// Add VIP user with full name information
-const addVipUser = (userId, username, firstName, lastName) => {
-    const expirationTimestamp = Date.now() + VIP_DURATION;
-    VIP_USERS.set(userId, {
-        expirationTimestamp: expirationTimestamp,
-        username: username,
-        firstName: firstName || '',
-        lastName: lastName || ''
-    });
-    saveVipUsers();
-};
 
 // Command handler for adding VIP users
 bot.onText(/\/addvip (\d+)/, async (msg, match) => {
@@ -510,7 +571,7 @@ bot.onText(/\/addvip (\d+)/, async (msg, match) => {
             const fullName = [firstName, lastName].filter(Boolean).join(' ') || 'Unknown';
 
             // Success message to admin with full information
-            bot.sendMessage(chatId, 
+            bot.sendMessage(chatId,
                 `✅ Thêm VIP thành công!\n` +
                 `🆔 UserID: ${targetUserId}\n` +
                 `👤 Tên: ${fullName}\n` +
@@ -518,10 +579,10 @@ bot.onText(/\/addvip (\d+)/, async (msg, match) => {
                 `⏰ Thời hạn: 30 ngày\n\n` +
                 `📝 Lưu ý: Người dùng cần vào bot và sử dụng lệnh /start trước khi có thể sử dụng tính năng VIP.`
             );
-            
+
             // Try to notify the user
             try {
-                await bot.sendMessage(targetUserId, 
+                await bot.sendMessage(targetUserId,
                     `🎉 Chúc mừng ${firstName}! Bạn đã được nâng cấp lên VIP!\n` +
                     `⏰ Thời hạn: 30 ngày\n\n` +
                     `💡 Sử dụng lệnh /spamvip để spam với tốc độ nhanh hơn!`
@@ -553,7 +614,7 @@ bot.onText(/\/listvip/, (msg) => {
         VIP_USERS.forEach((userData, userId) => {
             const fullName = [userData.firstName, userData.lastName].filter(Boolean).join(' ') || 'Unknown';
             const expirationDate = new Date(userData.expirationTimestamp).toLocaleString();
-            message += 
+            message +=
                 `🆔 ID: ${userId}\n` +
                 `👤 Tên: ${fullName}\n` +
                 `🔰 Username: @${userData.username}\n` +
@@ -587,7 +648,7 @@ bot.onText(/\/checkvip(.*)/, async (msg, match) => {
         const expirationTimestamp = userData.expirationTimestamp;
         const fullName = [userData.firstName, userData.lastName].filter(Boolean).join(' ') || 'Unknown';
         const remainingTime = Math.max(0, expirationTimestamp - Date.now());
-        
+
         let timeMessage;
         if (remainingTime <= 0) {
             timeMessage = 'đã hết hạn';
@@ -602,7 +663,7 @@ bot.onText(/\/checkvip(.*)/, async (msg, match) => {
             timeMessage = `còn ${remainingMinutes} phút trước khi hết hạn`;
         }
 
-        bot.sendMessage(chatId, 
+        bot.sendMessage(chatId,
             `🔍 Thông tin VIP:\n` +
             `🆔 UserID: ${targetUserId}\n` +
             `👤 Tên: ${fullName}\n` +
@@ -615,53 +676,74 @@ bot.onText(/\/checkvip(.*)/, async (msg, match) => {
 });
 
 
-// Check VIP status helper function
-const isVipUser = (userId) => {
-    if (VIP_USERS.has(userId)) {
-        const userData = VIP_USERS.get(userId);
-        return userData.expirationTimestamp > Date.now();
+// Hàm kiểm tra trạng thái VIP
+async function isVipUser(userId) {
+    try {
+        const [rows] = await pool.execute(
+            'SELECT * FROM vip_users WHERE user_id = ? AND expiration_timestamp > ?',
+            [userId, Date.now()]
+        );
+        return rows.length > 0;
+    } catch (error) {
+        console.error('Error checking VIP status:', error);
+        return false;
     }
-    return false;
-};
-
-// Remove expired VIP users
-const removeExpiredVipUsers = () => {
-    const now = Date.now();
-    let removed = false;
-    for (const [userId, userData] of VIP_USERS.entries()) {
-        if (userData.expirationTimestamp <= now) {
-            VIP_USERS.delete(userId);
-            removed = true;
-            console.log(`UserID [${userId}] đã hết hạn VIP và đã bị xóa.`);
+}
+// Hàm xóa người dùng VIP hết hạn
+async function removeExpiredVipUsers() {
+    try {
+        const [result] = await pool.execute(
+            'DELETE FROM vip_users WHERE expiration_timestamp <= ?',
+            [Date.now()]
+        );
+        if (result.affectedRows > 0) {
+            console.log(`Removed ${result.affectedRows} expired VIP users`);
         }
+    } catch (error) {
+        console.error('Error removing expired VIP users:', error);
     }
-    if (removed) {
-        saveVipUsers();
+}
+
+// Hàm thêm người dùng VIP
+async function addVipUser(userId, username, firstName, lastName) {
+    try {
+        const expirationTimestamp = Date.now() + VIP_DURATION;
+        const [result] = await pool.execute(
+            'INSERT INTO vip_users (user_id, username, first_name, last_name, expiration_timestamp) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE username = ?, first_name = ?, last_name = ?, expiration_timestamp = ?',
+            [userId, username, firstName, lastName, expirationTimestamp, username, firstName, lastName, expirationTimestamp]
+        );
+        return true;
+    } catch (error) {
+        console.error('Error adding VIP user:', error);
+        return false;
     }
-};
+}
 
-const removeVipUser = (userId) => {
-    if (VIP_USERS.has(userId)) {
-        VIP_USERS.delete(userId);
-        saveVipUsers();
-    } else {
-        console.log(`UserID ${userId} không có trong danh sách VIP.`);
+
+// Hàm xóa người dùng VIP
+async function removeVipUser(userId) {
+    try {
+        const [result] = await pool.execute(
+            'DELETE FROM vip_users WHERE user_id = ?',
+            [userId]
+        );
+        return result.affectedRows > 0;
+    } catch (error) {
+        console.error('Error removing VIP user:', error);
+        return false;
     }
-};
+}
 
-const listVipUsers = () => {
-    if (VIP_USERS.size === 0) {
-        return 'Danh sách VIP trống.';
+// Hàm lấy danh sách tất cả người dùng VIP
+async function listVipUsers() {
+    try {
+        const [rows] = await pool.execute('SELECT * FROM vip_users ORDER BY created_at DESC');
+        return rows;
+    } catch (error) {
+        console.error('Error listing VIP users:', error);
+        return [];
     }
-
-    let message = 'Danh sách VIP:\n\n';
-    VIP_USERS.forEach((userData, userId) => {
-        const expirationDate = new Date(userData.expirationTimestamp).toLocaleString();
-        message += `- ID: ${userId}\n  Tên: ${userData.username || 'Không có username'}\n  Hết hạn: ${expirationDate}\n\n`;
-    });
-
-    return message;
-};
+}
 
 
 const saveUserStats = () => {
@@ -672,9 +754,20 @@ const saveUserStats = () => {
     fs.writeFileSync(USER_STATS_FILE_PATH, JSON.stringify(data, null, 2), 'utf8');
 };
 
+// Hàm lấy thông tin người dùng VIP
+async function getVipUser(userId) {
+    try {
+        const [rows] = await pool.execute(
+            'SELECT * FROM vip_users WHERE user_id = ?',
+            [userId]
+        );
+        return rows[0] || null;
+    } catch (error) {
+        console.error('Error getting VIP user:', error);
+        return null;
+    }
+}
 
-
-loadVipUsers();
 
 // Thiết lập kiểm tra định kỳ để loại bỏ người dùng VIP đã hết hạn (10 phút một lần)
 setInterval(removeExpiredVipUsers, 10 * 60 * 1000);
@@ -685,3 +778,13 @@ process.on('SIGINT', saveUserStats);
 process.on('SIGTERM', saveUserStats);
 
 console.log('Bot is running...');
+// Export các hàm để sử dụng
+module.exports = {
+    initializeDatabase,
+    addVipUser,
+    isVipUser,
+    removeVipUser,
+    getVipUser,
+    listVipUsers,
+    removeExpiredVipUsers
+};

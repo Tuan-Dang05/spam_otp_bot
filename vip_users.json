@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "userId": 5976586847,
+    "expirationTimestamp": {
+      "expirationTimestamp": 1731215205005,
+      "username": "User_5976586847",
+      "firstName": "Duy",
+      "lastName": "Duy"
+    }
+  }
+]
